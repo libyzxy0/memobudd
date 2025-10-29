@@ -11,12 +11,10 @@
 
 #define FORMAT_LITTLEFS_IF_FAILED false
 
-/* WIFI DEFAULT CONFIGURATIONS */
-const char* wifi_ssid = "OrangeCat";
-const char* wifi_password = "myorange32";
-
-const char* wifi_ap_ssid = "Memory Buddy";
-const char* wifi_ap_password = "0123456789";
+String wifi_ssid;
+String wifi_password;
+String wifi_ap_ssid;
+String wifi_ap_password;
 
 /* BUTTON PINS */
 #define UP_BTN 4
@@ -36,6 +34,8 @@ DebouncedButton down_button;
 DebouncedButton enter_button;
 const unsigned long debounceDelay = 50;
 
+const int WAKEUP_PIN = 4;
+
 /* MENU STATES */
 int current_menu_page = 0;
 int current_menu_index = 0;
@@ -48,7 +48,7 @@ const char* menu_items[] = {
   "REMINDERS",
   "BIBLE VERSE",
   "MEMOBUDD QUOTES",
-  "CONFIGURE"
+  "SETTINGS"
 };
 
 const int menu_length = sizeof(menu_items) / sizeof(menu_items[0]);
@@ -124,17 +124,61 @@ void set_pomodoro_timer(int minutes, int seconds) {
     pomodoro_seconds %= 60;
   }
 }
-/* ========== END UTILS ========== */
 
-/* ========== FORWARD DECLARATIONS ========== */
-void menu_screen();
-void quick_notes_screen();
-void pomodoro_timer_screen();
-void flashcard_screen();
-void reminders_screen();
-void bible_verse_screen();
-void quotes_screen();
-void configure_screen();
+void fs_write_file(fs::FS &fs, const char * path, const char * data){
+  File file = fs.open(path, FILE_WRITE);
+  if(!file){
+    Serial.println("Failed to write file.");
+    return;
+  }
+  if(file.print(data)){
+    Serial.println("File written");
+  } else {
+    Serial.println("Failed to sulat.");
+  }
+  file.close();
+}
+
+void fs_delete_file(fs::FS &fs, const char * path){
+  if(fs.remove(path)){
+    Serial.println("File deleted");
+  } else {
+    Serial.println("Failed to delete.");
+  }
+}
+
+String fs_read_file(fs::FS &fs, const char * path) {
+  File file = fs.open(path);
+  if (!file || file.isDirectory()) {
+    Serial.println("Failed to read file.");
+    return "";
+  }
+  String data = "";
+  while (file.available()) {
+    data += (char)file.read();
+  }
+  file.close();
+  return data;
+}
+
+void set_config(const char* ssid, const char* password, const char* ap_ssid, const char* ap_password) {
+  DynamicJsonDocument newConf(256);
+    newConf["wifi_ssid"] = String(ssid);
+    newConf["wifi_password"] = String(password);
+    newConf["wifi_ap_ssid"] = String(ap_ssid);
+    newConf["wifi_ap_password"] = String(ap_password);
+    
+    char output[256];
+    serializeJson(newConf, output);
+    fs_write_file(LITTLEFS, "/config.json", output);
+    
+    wifi_ssid = String(ssid);
+    wifi_password = String(password);
+    wifi_ap_ssid = String(ap_ssid);
+    wifi_ap_password = String(ap_password);
+}
+
+/* ========== END UTILS ========== */
 
 /* ========== SCREENS ========== */
 void (*screens[])() = {
@@ -145,12 +189,36 @@ void (*screens[])() = {
   reminders_screen,
   bible_verse_screen,
   quotes_screen,
-  configure_screen
+  settings_screen
 };
 
 /* ========== MENU SCREEN START ========== */
 void menu_screen() {
   display.clearDisplay();
+  
+  if(selected_page != 0) return;
+  
+  if(!digitalRead(ENTER_BTN)) {
+    if(!digitalRead(UP_BTN)) {
+      ESP.restart();
+      return;
+    }
+    if(!digitalRead(DOWN_BTN)) {
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.print("Turning off...");
+      display.display();
+      delay(1000);
+      display.clearDisplay();
+      display.display();
+      delay(1000);
+      esp_deep_sleep_start();
+      return;
+    }
+  }
+  
+  
+  
   if(debounce(up_button)) {
     if (current_menu_index > 0) {
       current_menu_index--;
@@ -174,27 +242,11 @@ void menu_screen() {
     selected_page = selectedIndex + 1;
   }
 
-  if(selected_page != 0) return;
-
   int startIndex = current_menu_page * 4;
   int endIndex = min(startIndex + 4, menu_length);
   display.clearDisplay();
-
-  if(WiFi.status() == WL_CONNECTED) {
-    display.fillRect(0, 0, 13, 9, SH110X_WHITE);
-    display.setCursor(1, 1);
-    display.setTextColor(SH110X_BLACK);
-    display.print("WF");
-    display.setTextColor(SH110X_WHITE);
-  } else {
-    display.fillRect(0, 0, 13, 9, SH110X_WHITE);
-    display.setCursor(1, 1);
-    display.setTextColor(SH110X_BLACK);
-    display.print("OF");
-    display.setTextColor(SH110X_WHITE);
-  }
-
-  centered_x("MEMOBUDD MENU", 0, 1);
+  display.setCursor(0, 1);
+  display.print("MEMOBUDD MENU");
   display.fillRect(114, 0, 20, 9, SH110X_WHITE);
   display.setTextColor(SH110X_BLACK);
   display.setCursor(116, 1);
@@ -222,18 +274,19 @@ void menu_screen() {
 /* ========== QUICK NOTES SCREEN START ========== */
 void quick_notes_screen() {
   display.clearDisplay();
-  if(debounce(up_button)) {
+  if(selected_page != 1) return;
+  
+  if(debounce(up_button)) {}
+  if(debounce(down_button)) {}
+  if(debounce(enter_button)) {
     back_menu();
   }
-  if(debounce(down_button)) {}
-  if(debounce(enter_button)) {}
 
-  if(selected_page != 1) return;
 
   display.setCursor(0, 0);
   display.print("Quick Notes");
   display.setCursor(0, 12);
-  display.print("Press UP to go back");
+  display.print("Press ENTER to go back");
   display.display();
 }
 /* ========== QUICK NOTES SCREEN END ========== */
@@ -285,7 +338,6 @@ void pomodoro_timer_screen() {
               digitalWrite(BUZZER, HIGH);
               delay(50);
               digitalWrite(BUZZER, LOW);
-              
             }
           }
         }
@@ -405,18 +457,18 @@ void pomodoro_timer_screen() {
 /* ========== FLSHCARD SCREEN START ========== */
 void flashcard_screen() {
   display.clearDisplay();
-  if(debounce(up_button)) {
+  if(selected_page != 3) return;
+  
+  if(debounce(up_button)) {}
+  if(debounce(down_button)) {}
+  if(debounce(enter_button)) {
     back_menu();
   }
-  if(debounce(down_button)) {}
-  if(debounce(enter_button)) {}
-
-  if(selected_page != 3) return;
 
   display.setCursor(0, 0);
-  display.print("Flashcard");
+  display.print("FLASHCARD");
   display.setCursor(0, 12);
-  display.print("Press UP to go back");
+  display.print("Press ENTER to go back");
   display.display();
 }
 /* ========== FLASHCARD SCREEN END ========== */
@@ -424,18 +476,18 @@ void flashcard_screen() {
 /* ========== REMINDERS SCREEN START ========== */
 void reminders_screen() {
   display.clearDisplay();
-  if(debounce(up_button)) {
+  if(selected_page != 4) return;
+  
+  if(debounce(up_button)) {}
+  if(debounce(down_button)) {}
+  if(debounce(enter_button)) {
     back_menu();
   }
-  if(debounce(down_button)) {}
-  if(debounce(enter_button)) {}
-
-  if(selected_page != 4) return;
 
   display.setCursor(0, 0);
   display.print("Reminders");
   display.setCursor(0, 12);
-  display.print("Press UP to go back");
+  display.print("Press ENTER to go back");
   display.display();
 }
 /* ========== REMINDERS SCREEN END ========== */
@@ -443,18 +495,19 @@ void reminders_screen() {
 /* ========== BIBLE VERSE SCREEN START ========== */
 void bible_verse_screen() {
   display.clearDisplay();
-  if(debounce(up_button)) {
-    back_menu();
-  }
-  if(debounce(down_button)) {}
-  if(debounce(enter_button)) {}
 
   if(selected_page != 5) return;
+  
+  if(debounce(up_button)) {}
+  if(debounce(down_button)) {}
+  if(debounce(enter_button)) {
+    back_menu();
+  }
 
   display.setCursor(0, 0);
   display.print("Bible Verse");
   display.setCursor(0, 12);
-  display.print("Press UP to go back");
+  display.print("Press ENTER to go back");
   display.display();
 } 
 /* ========== BIBLE VERSE SCREEN END ========== */
@@ -462,38 +515,40 @@ void bible_verse_screen() {
 /* ========== QUOTES SCREEN START ========== */
 void quotes_screen() {
   display.clearDisplay();
-  if(debounce(up_button)) {
-    back_menu();
-  }
-  if(debounce(down_button)) {}
-  if(debounce(enter_button)) {}
 
   if(selected_page != 6) return;
+  
+  if(debounce(up_button)) {}
+  if(debounce(down_button)) {}
+  if(debounce(enter_button)) {
+    back_menu();
+  }
 
   display.setCursor(0, 0);
-  display.print("Quotes");
-  display.setCursor(0, 12);
-  display.print("Press UP to go back");
+  display.print("HALUUU");
   display.display();
 }
+/* ========== QUOTES SCREEN END ========== */
 
-void configure_screen() {
+void settings_screen() {
   display.clearDisplay();
+  if(selected_page != 7) return;
+  
   if(debounce(up_button)) {
     back_menu();
   }
+  
   if(debounce(down_button)) {}
   if(debounce(enter_button)) {}
 
-  if(selected_page != 7) return;
+  String config = fs_read_file(LITTLEFS, "/config.json");
 
   display.setCursor(0, 0);
   display.print("Configure");
   display.setCursor(0, 12);
-  display.print("Press UP to go back");
+  display.print(config);
   display.display();
 }
-/* ========== QUOTES SCREEN END ========== */
 
 /* ========== SETUP AND LOOP FUNCTION BELOW MAIN ========== */
 void setup() {
@@ -504,6 +559,9 @@ void setup() {
   pinMode(DOWN_BTN, INPUT_PULLUP);
   pinMode(BUZZER, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
+  
+  /* WAKE UP BUTTON */
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKEUP_PIN, LOW);
 
   initDebouncedButton(up_button, UP_BTN, debounceDelay);
   initDebouncedButton(down_button, DOWN_BTN, debounceDelay);
@@ -512,9 +570,38 @@ void setup() {
   if (!display.begin(0x3C, true)) {
     for (;;);
   }
+  
+  if(!LITTLEFS.begin(FORMAT_LITTLEFS_IF_FAILED)){
+    Serial.println("LittleFS Mount Failed!");
+    return;
+  }
 
   display.setTextSize(1);
   display.setTextColor(SH110X_WHITE);
+  display.clearDisplay();
+  
+  /* INITIALIZE CONFIGURATIONS */
+  String config = fs_read_file(LITTLEFS, "/config.json");
+  
+  if(config == "") {
+    Serial.println("Failed to read configurations");
+    display.print("Failed to read configurations.");
+    return;
+  } 
+  
+  if (config != "") {
+    DynamicJsonDocument conf(512);
+    DeserializationError error = deserializeJson(conf, config);
+    if(error) {
+      Serial.println("Failed to read config file.");
+      return;
+    }
+    wifi_ssid = conf["wifi_ssid"].as<String>();
+    wifi_password = conf["wifi_password"].as<String>();
+    wifi_ap_ssid = conf["wifi_ap_ssid"].as<String>();
+    wifi_ap_password = conf["wifi_ap_password"].as<String>();
+  }
+  
   display.clearDisplay();
   display.setCursor(0, 0);
   display.print(wifi_ssid);
@@ -522,7 +609,7 @@ void setup() {
   display.print(wifi_password);
   display.display();
 
-  WiFi.begin(wifi_ssid, wifi_password);
+  WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
   display.setCursor(0, 12);
   display.print("Connecting to WiFi...");
   display.display();
@@ -554,7 +641,6 @@ void setup() {
   } else {
     centered_x("CONNECTED", 20, 2);
     display.display();
-    delay(1000);
   }
 
   display.setTextSize(1);
